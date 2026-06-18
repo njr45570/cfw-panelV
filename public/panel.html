@@ -1,0 +1,189 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CFW — لوحة الإدارة</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{--bg:#0d0f13;--bg2:#1a1d24;--bg3:#22262f;--gold:#c9a14a;--gold-l:#e8c878;--ink:#e8e8e8;--ink2:rgba(255,255,255,.55);--ink3:rgba(255,255,255,.25);--radius:12px;}
+body{background:var(--bg);color:var(--ink);font-family:'Segoe UI',sans-serif;min-height:100vh;}
+
+/* ── NAV ── */
+nav{background:var(--bg2);border-bottom:1px solid rgba(255,255,255,.06);padding:0 24px;display:flex;align-items:center;justify-content:space-between;height:60px;}
+.nav-logo{font-size:18px;font-weight:700;color:var(--gold-l);}
+.nav-user{display:flex;align-items:center;gap:10px;}
+.nav-user img{width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.1);}
+.nav-user span{font-size:14px;color:var(--ink2);}
+.btn-logout{background:transparent;border:1px solid rgba(255,255,255,.1);border-radius:8px;color:var(--ink2);padding:6px 14px;font-size:13px;cursor:pointer;transition:.2s;}
+.btn-logout:hover{border-color:rgba(255,255,255,.25);color:var(--ink);}
+
+/* ── MAIN ── */
+main{max-width:960px;margin:0 auto;padding:32px 20px;}
+h1{font-size:22px;margin-bottom:6px;}
+.subtitle{color:var(--ink2);font-size:14px;margin-bottom:28px;}
+
+/* ── TABS ── */
+.tabs{display:flex;gap:8px;margin-bottom:24px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:14px;flex-wrap:wrap;}
+.tab{background:transparent;border:1px solid rgba(255,255,255,.08);border-radius:8px;color:var(--ink2);padding:8px 18px;font-size:13px;cursor:pointer;transition:.2s;display:inline-flex;align-items:center;gap:6px;}
+.tab.active{background:rgba(201,161,74,.1);border-color:rgba(201,161,74,.3);color:var(--gold-l);}
+.badge{background:rgba(201,161,74,.15);border-radius:99px;padding:1px 8px;font-size:11px;font-weight:700;}
+
+/* ── CARDS ── */
+.req-card{background:var(--bg2);border:1px solid rgba(201,161,74,.12);border-radius:var(--radius);margin-bottom:14px;overflow:hidden;}
+.req-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;cursor:pointer;gap:12px;flex-wrap:wrap;}
+.req-head:hover{background:rgba(255,255,255,.02);}
+.req-info{flex:1;min-width:0;}
+.req-name{font-size:17px;font-weight:600;color:var(--ink);}
+.req-meta{font-size:12px;color:var(--ink2);margin-top:3px;}
+.status-badge{font-size:11px;font-weight:700;letter-spacing:1px;padding:4px 12px;border-radius:99px;text-transform:uppercase;white-space:nowrap;}
+.status-badge.pending{background:rgba(201,161,74,.1);color:var(--gold-l);border:1px solid rgba(201,161,74,.2);}
+.status-badge.accepted{background:rgba(60,180,80,.12);color:#6ee07a;border:1px solid rgba(60,180,80,.25);}
+.status-badge.rejected{background:rgba(220,60,60,.1);color:#e07a7a;border:1px solid rgba(220,60,60,.2);}
+.chevron{color:var(--ink2);font-size:18px;transition:transform .2s;}
+.req-body{display:none;padding:0 20px 20px;border-top:1px solid rgba(255,255,255,.05);}
+.req-body.open{display:block;}
+.qa-item{margin-top:14px;}
+.qa-q{font-size:12px;color:var(--gold);font-weight:600;margin-bottom:4px;}
+.qa-a{font-size:14px;color:var(--ink);background:rgba(0,0,0,.2);border-radius:8px;padding:10px 14px;white-space:pre-wrap;line-height:1.7;}
+.actions{margin-top:18px;}
+.actions textarea{width:100%;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.08);border-radius:10px;color:var(--ink);padding:10px 14px;font-size:14px;font-family:inherit;resize:vertical;margin-bottom:10px;text-align:right;}
+.actions-btns{display:flex;gap:10px;flex-wrap:wrap;}
+.btn{padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:.2s;}
+.btn-accept{background:rgba(60,180,80,.15);border:1px solid rgba(60,180,80,.3);color:#6ee07a;}
+.btn-accept:hover{background:rgba(60,180,80,.25);}
+.btn-reject{background:rgba(220,60,60,.12);border:1px solid rgba(220,60,60,.25);color:#e07a7a;}
+.btn-reject:hover{background:rgba(220,60,60,.22);}
+.empty{text-align:center;padding:60px 20px;color:var(--ink2);font-size:15px;}
+.decided-note{font-size:13px;color:var(--ink2);margin-top:10px;}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">🛡️ CFW — لوحة الإدارة</div>
+  <div class="nav-user">
+    <img id="avatar" src="" alt=""/>
+    <span id="username"></span>
+    <button class="btn-logout" onclick="location.href='/auth/logout'">خروج</button>
+  </div>
+</nav>
+
+<main>
+  <h1>مراجعة طلبات التفعيل</h1>
+  <p class="subtitle">راجع الطلبات وقرر القبول أو الرفض — كل قرار يُرسل تلقائياً للديسكورد.</p>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="pending"  onclick="switchTab('pending')">⏳ بانتظار المراجعة <span class="badge" id="cnt-pending">0</span></button>
+    <button class="tab"        data-tab="accepted" onclick="switchTab('accepted')">✅ مقبول <span class="badge" id="cnt-accepted">0</span></button>
+    <button class="tab"        data-tab="rejected" onclick="switchTab('rejected')">❌ مرفوض <span class="badge" id="cnt-rejected">0</span></button>
+  </div>
+
+  <div id="list"></div>
+</main>
+
+<script>
+let allRequests = [];
+let currentTab  = "pending";
+
+async function init(){
+  const me = await fetch("/api/me").then(r=>r.json());
+  document.getElementById("avatar").src     = me.avatar;
+  document.getElementById("username").textContent = me.username;
+  await loadRequests();
+}
+
+async function loadRequests(){
+  allRequests = await fetch("/api/requests").then(r=>r.json());
+  updateCounts();
+  render();
+}
+
+function updateCounts(){
+  ["pending","accepted","rejected"].forEach(s => {
+    document.getElementById("cnt-"+s).textContent = allRequests.filter(r=>r.status===s).length;
+  });
+}
+
+function switchTab(tab){
+  currentTab = tab;
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab===tab));
+  render();
+}
+
+function render(){
+  const list = document.getElementById("list");
+  const arr  = allRequests.filter(r => r.status === currentTab);
+  if(!arr.length){ list.innerHTML = `<div class="empty">لا توجد طلبات في هذا القسم</div>`; return; }
+
+  list.innerHTML = arr.map(req => {
+    const d    = req.data;
+    const name = d.real_name_txt || "—";
+    const disc = d.discord_tag   || "—";
+    const ign  = d.ign           || "—";
+    const age  = d.real_name_age ? d.real_name_age+" سنة" : "—";
+    const date = new Date(req.submittedAt).toLocaleDateString("ar-SA",{year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
+    const statusLabel = req.status==="accepted"?"مقبول":req.status==="rejected"?"مرفوض":"بانتظار";
+
+    const qaHTML = Object.entries(d).map(([k,v]) => {
+      if(!v || k==="real_name_age") return "";
+      const label = {
+        real_name_txt:"الاسم الحقيقي", discord_tag:"ديسكورد", ign:"اسم الشخصية"
+      }[k] || k;
+      return `<div class="qa-item"><div class="qa-q">${esc(label)}</div><div class="qa-a">${esc(String(v))}</div></div>`;
+    }).join("");
+
+    const actionHTML = req.status==="pending" ? `
+      <div class="actions">
+        <textarea id="note-${req.id}" rows="2" placeholder="ملاحظة (اختياري)"></textarea>
+        <div class="actions-btns">
+          <button class="btn btn-accept" onclick="decide('${req.id}','accepted')">✅ قبول</button>
+          <button class="btn btn-reject" onclick="decide('${req.id}','rejected')">❌ رفض</button>
+        </div>
+      </div>` :
+      (req.note ? `<div class="decided-note">📝 ملاحظة: ${esc(req.note)}</div>` : "") +
+      (req.decidedBy ? `<div class="decided-note">👤 قرار من: ${esc(req.decidedBy)}</div>` : "");
+
+    return `
+      <div class="req-card" id="card-${req.id}">
+        <div class="req-head" onclick="toggle('${req.id}')">
+          <div class="req-info">
+            <div class="req-name">${esc(name)}</div>
+            <div class="req-meta">${esc(disc)} · ${esc(ign)} · ${esc(age)} · ${date}</div>
+          </div>
+          <span class="status-badge ${req.status}">${statusLabel}</span>
+          <span class="chevron" id="chev-${req.id}">▾</span>
+        </div>
+        <div class="req-body" id="body-${req.id}">
+          ${qaHTML}
+          ${actionHTML}
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function toggle(id){
+  const body = document.getElementById("body-"+id);
+  const chev = document.getElementById("chev-"+id);
+  body.classList.toggle("open");
+  chev.style.transform = body.classList.contains("open") ? "rotate(180deg)" : "";
+}
+
+async function decide(id, decision){
+  const note = document.getElementById("note-"+id)?.value.trim()||"";
+  const res  = await fetch("/api/decide",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({id, decision, note})
+  });
+  if(res.ok) await loadRequests();
+}
+
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+init();
+setInterval(loadRequests, 15000);
+</script>
+</body>
+</html>
