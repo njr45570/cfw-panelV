@@ -200,4 +200,4 @@ app.get("/panel", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "panel.html"));
 });
 
-app.listen(PORT, () => console.log(`✅ CFW Panel running on port ${PORT}`)); 
+app.listen(PORT, () => console.log(`✅ CFW Panel running on port ${PORT}`));
