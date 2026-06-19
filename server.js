@@ -13,13 +13,30 @@ const GUILD_ID      = process.env.GUILD_ID;
 const SHEET_ID      = process.env.SHEET_ID;
 const PORT          = process.env.PORT || 3000;
 
+// ضع هنا دومين موقعك على Netlify (بدون / في النهاية)
+const ALLOWED_ORIGIN = process.env.SITE_ORIGIN || "https://fabulous-pony-9a0584.netlify.app";
+
 app.use(express.json());
+
+// ── CORS: نسمح لموقع Netlify يستعلم من هذا السيرفر مع إرسال الكوكي ──
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
+  next();
+});
+
 app.use(express.static(path.join(__dirname, "public")));
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false, maxAge: 1000 * 60 * 60 * 8 }
+  cookie: {
+    secure: true,        // لازم true عشان الكوكي يشتغل بين دومينين مختلفين (HTTPS)
+    sameSite: "none",    // يسمح بمشاركة الكوكي بين Netlify و Railway
+    maxAge: 1000 * 60 * 60 * 8
+  }
 }));
 
 // ── مساعد: اجيب قائمة الأدمنز من Google Sheets ──
@@ -57,7 +74,6 @@ app.get("/auth/callback", async (req, res) => {
   if (!code) return res.redirect("/?error=no_code");
 
   try {
-    // استبدل الكود بتوكن
     const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -72,19 +88,16 @@ app.get("/auth/callback", async (req, res) => {
     const tokenData = await tokenRes.json();
     if (!tokenData.access_token) return res.redirect("/?error=token_failed");
 
-    // اجيب بيانات المستخدم
     const userRes  = await fetch("https://discord.com/api/users/@me", {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const user = await userRes.json();
 
-    // تحقق إنه أدمن
     const adminIds = await fetchAdminIds();
     if (!adminIds.includes(user.id)) {
       return res.redirect("/?error=not_admin");
     }
 
-    // حفظ الجلسة
     req.session.user = {
       id:       user.id,
       username: user.username,
@@ -117,6 +130,11 @@ app.get("/api/me", requireAuth, (req, res) => {
   res.json(req.session.user);
 });
 
+// ── API جديد: هل الزائر أدمن؟ (بدون خطأ 401، فقط true/false) ──
+app.get("/api/is-admin", (req, res) => {
+  res.json({ isAdmin: !!req.session?.user });
+});
+
 // ── API: جيب الطلبات ──
 let requests = [];
 app.get("/api/requests", requireAuth, (req, res) => {
@@ -147,7 +165,6 @@ app.post("/api/decide", requireAuth, async (req, res) => {
   entry.decidedAt = new Date().toISOString();
   entry.decidedBy = req.session.user.username;
 
-  // أرسل ويبهوك للديسكورد
   const webhook = process.env.WEBHOOK_URL;
   if (webhook) {
     const isAccepted = decision === "accepted";
