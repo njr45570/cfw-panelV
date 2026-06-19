@@ -4,6 +4,7 @@ const fetch   = require("node-fetch");
 const path    = require("path");
 
 const app = express();
+app.set("trust proxy", 1); // مهم: Railway يستخدم بروكسي، هذا يخلي الكوكي الآمن (secure) يشتغل صحيح
 
 const CLIENT_ID     = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
