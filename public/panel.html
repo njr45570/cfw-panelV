@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -126,13 +125,23 @@ function render(){
     const date = new Date(req.submittedAt).toLocaleDateString("ar-SA",{year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
     const statusLabel = req.status==="accepted"?"مقبول":req.status==="rejected"?"مرفوض":"بانتظار";
 
-    const qaHTML = Object.entries(d).map(([k,v]) => {
-      if(!v || k==="real_name_age") return "";
-      const label = {
-        real_name_txt:"الاسم الحقيقي", discord_tag:"ديسكورد", ign:"اسم الشخصية"
-      }[k] || k;
-      return `<div class="qa-item"><div class="qa-q">${esc(label)}</div><div class="qa-a">${esc(String(v))}</div></div>`;
-    }).join("");
+    const qaHTML = Array.isArray(d.qaList) && d.qaList.length
+      ? d.qaList.map(qa =>
+          `<div class="qa-item"><div class="qa-q">${esc(qa.label)}</div><div class="qa-a">${esc(String(qa.value||"—"))}</div></div>`
+        ).join("")
+      : Object.entries(d).map(([k,v]) => {
+          if(!v || k==="real_name_age" || k==="qaList") return "";
+          const label = {
+            real_name_txt:"الاسم الحقيقي", discord_tag:"ديسكورد", ign:"اسم الشخصية"
+          }[k] || k;
+          return `<div class="qa-item"><div class="qa-q">${esc(label)}</div><div class="qa-a">${esc(String(v))}</div></div>`;
+        }).join("");
+
+    const roleHTML = req.status==="accepted"
+      ? (req.roleGiven
+          ? `<div class="decided-note">🎭 تم إعطاء الرول تلقائياً ✅</div>`
+          : `<div class="decided-note">🎭 ${esc(req.roleNote || "لم يتم إعطاء الرول تلقائياً — أعطه يدوياً")}</div>`)
+      : "";
 
     const actionHTML = req.status==="pending" ? `
       <div class="actions">
@@ -143,7 +152,8 @@ function render(){
         </div>
       </div>` :
       (req.note ? `<div class="decided-note">📝 ملاحظة: ${esc(req.note)}</div>` : "") +
-      (req.decidedBy ? `<div class="decided-note">👤 قرار من: ${esc(req.decidedBy)}</div>` : "");
+      (req.decidedBy ? `<div class="decided-note">👤 قرار من: ${esc(req.decidedBy)}</div>` : "") +
+      roleHTML;
 
     return `
       <div class="req-card" id="card-${req.id}">
