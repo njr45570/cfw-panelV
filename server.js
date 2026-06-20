@@ -4,7 +4,6 @@ const fetch   = require("node-fetch");
 const path    = require("path");
 
 const app = express();
-app.set("trust proxy", 1); // مهم: Railway يستخدم بروكسي، هذا يخلي الكوكي الآمن (secure) يشتغل صحيح
 
 const CLIENT_ID     = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
@@ -14,15 +13,12 @@ const GUILD_ID      = process.env.GUILD_ID;
 const SHEET_ID      = process.env.SHEET_ID;
 const PORT          = process.env.PORT || 3000;
 
-// ضع هنا دومين موقعك على Netlify (بدون / في النهاية)
-const ALLOWED_ORIGIN = process.env.SITE_ORIGIN || "https://fabulous-pony-9a0584.netlify.app";
-
 app.use(express.json());
 
-// ── CORS: نسمح لموقع Netlify يستعلم من هذا السيرفر مع إرسال الكوكي ──
+// ── CORS: يسمح لموقع Netlify يتواصل مع هذا السيرفر ──
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
-  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
@@ -33,11 +29,7 @@ app.use(session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  cookie: {
-    secure: true,        // لازم true عشان الكوكي يشتغل بين دومينين مختلفين (HTTPS)
-    sameSite: "none",    // يسمح بمشاركة الكوكي بين Netlify و Railway
-    maxAge: 1000 * 60 * 60 * 8
-  }
+  cookie: { secure: false, maxAge: 1000 * 60 * 60 * 8 }
 }));
 
 // ── مساعد: اجيب قائمة الأدمنز من Google Sheets ──
@@ -75,6 +67,7 @@ app.get("/auth/callback", async (req, res) => {
   if (!code) return res.redirect("/?error=no_code");
 
   try {
+    // استبدل الكود بتوكن
     const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -89,16 +82,19 @@ app.get("/auth/callback", async (req, res) => {
     const tokenData = await tokenRes.json();
     if (!tokenData.access_token) return res.redirect("/?error=token_failed");
 
+    // اجيب بيانات المستخدم
     const userRes  = await fetch("https://discord.com/api/users/@me", {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const user = await userRes.json();
 
+    // تحقق إنه أدمن
     const adminIds = await fetchAdminIds();
     if (!adminIds.includes(user.id)) {
       return res.redirect("/?error=not_admin");
     }
 
+    // حفظ الجلسة
     req.session.user = {
       id:       user.id,
       username: user.username,
@@ -131,19 +127,26 @@ app.get("/api/me", requireAuth, (req, res) => {
   res.json(req.session.user);
 });
 
-// ── API جديد: هل الزائر أدمن؟ (بدون خطأ 401، فقط true/false) ──
-app.get("/api/is-admin", (req, res) => {
-  res.json({ isAdmin: !!req.session?.user });
-});
+// ── API: استقبال طلب جديد من الموقع الرئيسي ──
+const fs = require("fs");
+const DB_FILE = path.join(__dirname, "requests.json");
 
-// ── API: جيب الطلبات ──
-let requests = [];
+function loadRequestsFromDisk() {
+  try { return JSON.parse(fs.readFileSync(DB_FILE, "utf-8")); }
+  catch(e) { return []; }
+}
+function saveRequestsToDisk(arr) {
+  try { fs.writeFileSync(DB_FILE, JSON.stringify(arr, null, 2)); }
+  catch(e) { console.warn("Save error:", e.message); }
+}
+
+let requests = loadRequestsFromDisk();
+
 app.get("/api/requests", requireAuth, (req, res) => {
   res.json(requests);
 });
 
-// ── API: استقبال طلب جديد من الموقع الرئيسي ──
-app.post("/api/submit", (req, res) => {
+app.post("/api/submit", async (req, res) => {
   const entry = {
     id:          Date.now().toString(36) + Math.random().toString(36).slice(2,6),
     submittedAt: new Date().toISOString(),
@@ -152,6 +155,35 @@ app.post("/api/submit", (req, res) => {
     data:        req.body,
   };
   requests.unshift(entry);
+  saveRequestsToDisk(requests);
+
+  // إشعار الديسكورد بطلب جديد
+  const webhook = process.env.WEBHOOK_URL;
+  if (webhook) {
+    const d = entry.data;
+    const payload = {
+      username: "CFW — طلبات التفعيل",
+      embeds: [{
+        title:  "📋 طلب تفعيل جديد",
+        color:  13212234,
+        fields: [
+          { name: "الاسم",     value: d.real_name_txt || "—", inline: true },
+          { name: "ديسكورد",   value: d.discord_tag   || "—", inline: true },
+          { name: "اسم الشخصية", value: d.ign           || "—", inline: true },
+          { name: "🔗 مراجعة الطلب", value: process.env.PANEL_URL || "افتح لوحة الإدارة", inline: false },
+        ],
+        timestamp: new Date().toISOString(),
+      }],
+    };
+    try {
+      await fetch(webhook, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload),
+      });
+    } catch(e) { console.warn("Webhook error:", e.message); }
+  }
+
   res.json({ ok: true, id: entry.id });
 });
 
@@ -165,7 +197,9 @@ app.post("/api/decide", requireAuth, async (req, res) => {
   entry.note      = note || "";
   entry.decidedAt = new Date().toISOString();
   entry.decidedBy = req.session.user.username;
+  saveRequestsToDisk(requests);
 
+  // أرسل ويبهوك للديسكورد
   const webhook = process.env.WEBHOOK_URL;
   if (webhook) {
     const isAccepted = decision === "accepted";
