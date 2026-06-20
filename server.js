@@ -2,16 +2,22 @@ const express = require("express");
 const session = require("express-session");
 const fetch   = require("node-fetch");
 const path    = require("path");
+const fs      = require("fs");
+const { Client, GatewayIntentBits } = require("discord.js");
 
 const app = express();
 
-const CLIENT_ID     = process.env.CLIENT_ID;
-const CLIENT_SECRET = process.env.CLIENT_SECRET;
-const REDIRECT_URI  = process.env.REDIRECT_URI;
-const SESSION_SECRET= process.env.SESSION_SECRET || "cfw-secret-change-me";
-const GUILD_ID      = process.env.GUILD_ID;
-const SHEET_ID      = process.env.SHEET_ID;
-const PORT          = process.env.PORT || 3000;
+const CLIENT_ID      = process.env.CLIENT_ID;
+const CLIENT_SECRET  = process.env.CLIENT_SECRET;
+const REDIRECT_URI   = process.env.REDIRECT_URI;
+const SESSION_SECRET = process.env.SESSION_SECRET || "cfw-secret-change-me";
+const GUILD_ID       = process.env.GUILD_ID;
+const SHEET_ID       = process.env.SHEET_ID;
+const PORT           = process.env.PORT || 3000;
+const WEBHOOK_URL    = process.env.WEBHOOK_URL;
+const PANEL_URL      = process.env.PANEL_URL || "";
+const BOT_TOKEN       = process.env.BOT_TOKEN;        // توكن البوت (من Discord Developer Portal > Bot)
+const ACCEPT_ROLE_NAME = process.env.ACCEPT_ROLE_NAME || "Whitelist"; // اسم الرول اللي يتعطى عند القبول
 
 app.use(express.json());
 
@@ -32,7 +38,72 @@ app.use(session({
   cookie: { secure: false, maxAge: 1000 * 60 * 60 * 8 }
 }));
 
-// ── مساعد: اجيب قائمة الأدمنز من Google Sheets ──
+/* ════════════════════════════════════════════════════════════
+   بوت ديسكورد — يعطي الرول تلقائياً عند القبول
+   ════════════════════════════════════════════════════════════ */
+let bot = null;
+let botReady = false;
+
+if (BOT_TOKEN) {
+  bot = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMembers,
+    ],
+  });
+
+  bot.once("ready", () => {
+    botReady = true;
+    console.log(`🤖 البوت متصل: ${bot.user.tag}`);
+  });
+
+  bot.login(BOT_TOKEN).catch(e => console.error("❌ فشل تسجيل دخول البوت:", e.message));
+} else {
+  console.warn("⚠️ BOT_TOKEN غير موجود — إعطاء الرول التلقائي معطّل.");
+}
+
+// ── يحاول إيجاد العضو بالسيرفر بناءً على اسم المستخدم اللي كتبه بالنموذج ──
+async function findMemberByUsername(usernameRaw) {
+  if (!bot || !botReady || !GUILD_ID) return null;
+  const username = String(usernameRaw || "").trim().replace(/^@/, "").toLowerCase();
+  if (!username) return null;
+
+  try {
+    const guild = await bot.guilds.fetch(GUILD_ID);
+    // نجيب كل الأعضاء (يحتاج Server Members Intent مفعّل من Discord Developer Portal)
+    const members = await guild.members.fetch();
+    const match = members.find(m =>
+      m.user.username.toLowerCase() === username ||
+      (m.user.globalName && m.user.globalName.toLowerCase() === username) ||
+      m.user.tag.toLowerCase() === username
+    );
+    return match || null;
+  } catch (e) {
+    console.error("خطأ بالبحث عن العضو:", e.message);
+    return null;
+  }
+}
+
+// ── يعطي رول معيّن لعضو ──
+async function giveRole(member, roleName) {
+  try {
+    const guild = member.guild;
+    const role = guild.roles.cache.find(r => r.name === roleName);
+    if (!role) {
+      console.warn(`⚠️ الرول "${roleName}" غير موجود بالسيرفر`);
+      return { ok: false, reason: "role_not_found" };
+    }
+    await member.roles.add(role);
+    return { ok: true };
+  } catch (e) {
+    console.error("خطأ بإعطاء الرول:", e.message);
+    return { ok: false, reason: e.message };
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   مساعد: اجيب قائمة الأدمنز من Google Sheets
+   ════════════════════════════════════════════════════════════ */
 async function fetchAdminIds() {
   try {
     const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`;
@@ -50,7 +121,9 @@ async function fetchAdminIds() {
   }
 }
 
-// ── 1. ابدأ OAuth2 ──
+/* ════════════════════════════════════════════════════════════
+   تسجيل دخول الأدمن عبر Discord OAuth2
+   ════════════════════════════════════════════════════════════ */
 app.get("/auth/login", (req, res) => {
   const params = new URLSearchParams({
     client_id:     CLIENT_ID,
@@ -61,13 +134,11 @@ app.get("/auth/login", (req, res) => {
   res.redirect(`https://discord.com/oauth2/authorize?${params}`);
 });
 
-// ── 2. Callback من Discord ──
 app.get("/auth/callback", async (req, res) => {
   const { code } = req.query;
   if (!code) return res.redirect("/?error=no_code");
 
   try {
-    // استبدل الكود بتوكن
     const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -82,19 +153,16 @@ app.get("/auth/callback", async (req, res) => {
     const tokenData = await tokenRes.json();
     if (!tokenData.access_token) return res.redirect("/?error=token_failed");
 
-    // اجيب بيانات المستخدم
     const userRes  = await fetch("https://discord.com/api/users/@me", {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const user = await userRes.json();
 
-    // تحقق إنه أدمن
     const adminIds = await fetchAdminIds();
     if (!adminIds.includes(user.id)) {
       return res.redirect("/?error=not_admin");
     }
 
-    // حفظ الجلسة
     req.session.user = {
       id:       user.id,
       username: user.username,
@@ -110,25 +178,23 @@ app.get("/auth/callback", async (req, res) => {
   }
 });
 
-// ── 3. تسجيل الخروج ──
 app.get("/auth/logout", (req, res) => {
   req.session.destroy();
   res.redirect("/");
 });
 
-// ── Middleware: تحقق من الجلسة ──
 function requireAuth(req, res, next) {
   if (req.session?.user) return next();
   res.status(401).json({ error: "غير مصرح" });
 }
 
-// ── API: بيانات المستخدم الحالي ──
 app.get("/api/me", requireAuth, (req, res) => {
   res.json(req.session.user);
 });
 
-// ── API: استقبال طلب جديد من الموقع الرئيسي ──
-const fs = require("fs");
+/* ════════════════════════════════════════════════════════════
+   تخزين الطلبات (ملف JSON على القرص)
+   ════════════════════════════════════════════════════════════ */
 const DB_FILE = path.join(__dirname, "requests.json");
 
 function loadRequestsFromDisk() {
@@ -146,6 +212,7 @@ app.get("/api/requests", requireAuth, (req, res) => {
   res.json(requests);
 });
 
+// ── استقبال طلب جديد من موقع CFW ──
 app.post("/api/submit", async (req, res) => {
   const entry = {
     id:          Date.now().toString(36) + Math.random().toString(36).slice(2,6),
@@ -157,26 +224,37 @@ app.post("/api/submit", async (req, res) => {
   requests.unshift(entry);
   saveRequestsToDisk(requests);
 
-  // إشعار الديسكورد بطلب جديد
-  const webhook = process.env.WEBHOOK_URL;
-  if (webhook) {
-    const d = entry.data;
+  // إشعار الديسكورد بطلب جديد — يعرض كل الأسئلة والأجوبة
+  if (WEBHOOK_URL) {
+    const qaList = Array.isArray(req.body.qaList) ? req.body.qaList : [];
+    const fields = qaList.length
+      ? qaList.slice(0, 24).map(qa => ({
+          name:  String(qa.label || "—").slice(0, 256),
+          value: String(qa.value || "—").slice(0, 1024),
+          inline: false,
+        }))
+      : [
+          { name: "الاسم", value: req.body.real_name_txt || "—", inline: true },
+          { name: "ديسكورد", value: req.body.discord_tag || "—", inline: true },
+        ];
+
+    fields.push({
+      name: "🔗 مراجعة الطلب",
+      value: PANEL_URL ? `افتح لوحة الإدارة: ${PANEL_URL}` : "افتح لوحة الإدارة",
+      inline: false,
+    });
+
     const payload = {
       username: "CFW — طلبات التفعيل",
       embeds: [{
         title:  "📋 طلب تفعيل جديد",
         color:  13212234,
-        fields: [
-          { name: "الاسم",     value: d.real_name_txt || "—", inline: true },
-          { name: "ديسكورد",   value: d.discord_tag   || "—", inline: true },
-          { name: "اسم الشخصية", value: d.ign           || "—", inline: true },
-          { name: "🔗 مراجعة الطلب", value: process.env.PANEL_URL || "افتح لوحة الإدارة", inline: false },
-        ],
+        fields,
         timestamp: new Date().toISOString(),
       }],
     };
     try {
-      await fetch(webhook, {
+      await fetch(WEBHOOK_URL, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(payload),
@@ -187,7 +265,7 @@ app.post("/api/submit", async (req, res) => {
   res.json({ ok: true, id: entry.id });
 });
 
-// ── API: قرار القبول أو الرفض ──
+// ── قرار القبول أو الرفض ──
 app.post("/api/decide", requireAuth, async (req, res) => {
   const { id, decision, note } = req.body;
   const entry = requests.find(r => r.id === id);
@@ -197,28 +275,53 @@ app.post("/api/decide", requireAuth, async (req, res) => {
   entry.note      = note || "";
   entry.decidedAt = new Date().toISOString();
   entry.decidedBy = req.session.user.username;
+
+  let roleResult = null;
+
+  // ── لو قبول: نحاول نعطي الرول تلقائياً ──
+  if (decision === "accepted" && BOT_TOKEN) {
+    const usernameToFind = entry.data.discord_tag;
+    const member = await findMemberByUsername(usernameToFind);
+    if (member) {
+      roleResult = await giveRole(member, ACCEPT_ROLE_NAME);
+      entry.roleGiven = roleResult.ok;
+    } else {
+      entry.roleGiven = false;
+      entry.roleNote  = "العضو غير موجود بالسيرفر — أعطِ الرول يدوياً";
+    }
+  }
+
   saveRequestsToDisk(requests);
 
-  // أرسل ويبهوك للديسكورد
-  const webhook = process.env.WEBHOOK_URL;
-  if (webhook) {
+  // ── إشعار الديسكورد بالقرار ──
+  if (WEBHOOK_URL) {
     const isAccepted = decision === "accepted";
+    const fields = [
+      { name: "الاسم",     value: entry.data.real_name_txt || "—", inline: true },
+      { name: "ديسكورد",   value: entry.data.discord_tag   || "—", inline: true },
+      { name: "قرار من",   value: req.session.user.username,        inline: true },
+      ...(note ? [{ name: "ملاحظة", value: note, inline: false }] : []),
+    ];
+
+    if (isAccepted) {
+      if (roleResult?.ok) {
+        fields.push({ name: "🎭 الرول", value: `✅ تم إعطاء رول "${ACCEPT_ROLE_NAME}" تلقائياً`, inline: false });
+      } else if (BOT_TOKEN) {
+        fields.push({ name: "🎭 الرول", value: `⚠️ تعذّر إعطاء الرول تلقائياً — تأكد إن "${entry.data.discord_tag}" منضم بالسيرفر وأعطه الرول يدوياً`, inline: false });
+      }
+    }
+
     const payload = {
       username: "CFW — الإدارة",
       embeds: [{
         title:  isAccepted ? "✅ تم قبول طلب تفعيل" : "❌ تم رفض طلب تفعيل",
         color:  isAccepted ? 4169982 : 14495300,
-        fields: [
-          { name: "الاسم",     value: entry.data.real_name_txt || "—", inline: true },
-          { name: "ديسكورد",   value: entry.data.discord_tag   || "—", inline: true },
-          { name: "قرار من",   value: req.session.user.username,        inline: true },
-          ...(note ? [{ name: "ملاحظة", value: note, inline: false }] : []),
-        ],
+        fields,
         timestamp: new Date().toISOString(),
       }],
     };
     try {
-      await fetch(webhook, {
+      await fetch(WEBHOOK_URL, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(payload),
@@ -226,10 +329,9 @@ app.post("/api/decide", requireAuth, async (req, res) => {
     } catch(e) { console.warn("Webhook error:", e.message); }
   }
 
-  res.json({ ok: true });
+  res.json({ ok: true, roleResult });
 });
 
-// ── صفحة اللوحة ──
 app.get("/panel", (req, res) => {
   if (!req.session?.user) return res.redirect("/");
   res.sendFile(path.join(__dirname, "public", "panel.html"));
