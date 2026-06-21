@@ -12,20 +12,54 @@ const CLIENT_SECRET  = process.env.CLIENT_SECRET;
 const REDIRECT_URI   = process.env.REDIRECT_URI;
 const SESSION_SECRET = process.env.SESSION_SECRET || "cfw-secret-change-me";
 const GUILD_ID       = process.env.GUILD_ID;
-const SHEET_ID       = process.env.SHEET_ID;
 const PORT           = process.env.PORT || 3000;
 const WEBHOOK_URL    = process.env.WEBHOOK_URL;
 const PANEL_URL      = process.env.PANEL_URL || "";
 const BOT_TOKEN       = process.env.BOT_TOKEN;        // توكن البوت (من Discord Developer Portal > Bot)
 const ACCEPT_ROLE_NAME = process.env.ACCEPT_ROLE_NAME || "Whitelist"; // اسم الرول اللي يتعطى عند القبول
+const SITE_URL          = process.env.SITE_URL || "";    // رابط موقع Netlify الرئيسي (يُستخدم بـCORS وبروابط تسجيل الدخول)
+
+// قائمة الأدمنز: حِط الـ Discord ID لكل أدمن مفصول بفاصلة بمتغير بيئة ADMIN_IDS
+// مثال بـ Railway > Variables:  ADMIN_IDS = 123456789012345678,987654321098765432
+const ADMIN_IDS = String(process.env.ADMIN_IDS || "")
+  .split(",")
+  .map(id => id.trim())
+  .filter(Boolean);
+
+if (!ADMIN_IDS.length) {
+  console.warn("⚠️ ADMIN_IDS غير موجود — ما حد يقدر يسجل دخول كأدمن. حِط المتغير بإعدادات Railway.");
+}
 
 app.use(express.json());
 
-// ── CORS: يسمح لموقع Netlify يتواصل مع هذا السيرفر ──
+// ── حماية بسيطة من الإغراق (Rate Limiting) — بدون مكتبات خارجية ──
+// يحدد عدد الطلبات المسموحة لكل IP خلال فترة زمنية معينة
+function createRateLimiter({ windowMs, max }) {
+  const hits = new Map(); // ip -> [timestamps]
+  return function (req, res, next) {
+    const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.socket.remoteAddress || "unknown";
+    const now = Date.now();
+    const timestamps = (hits.get(ip) || []).filter(t => now - t < windowMs);
+    if (timestamps.length >= max) {
+      return res.status(429).json({ error: "طلبات كثيرة، حاول بعد قليل." });
+    }
+    timestamps.push(now);
+    hits.set(ip, timestamps);
+    next();
+  };
+}
+
+// تنظيف دوري للذاكرة عشان ما تكبر بلا حدود مع مرور الوقت
+const submitLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 5 }); // 5 طلبات كل 10 دقايق لكل IP
+
+// ── CORS: يسمح بس لموقعك (Netlify) يتواصل مع هذا السيرفر ──
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
+  if (SITE_URL) {
+    res.header("Access-Control-Allow-Origin", SITE_URL);
+  }
   res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type");
+  res.header("Vary", "Origin");
   if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
@@ -102,26 +136,6 @@ async function giveRole(member, roleName) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   مساعد: اجيب قائمة الأدمنز من Google Sheets
-   ════════════════════════════════════════════════════════════ */
-async function fetchAdminIds() {
-  try {
-    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`;
-    const res  = await fetch(url);
-    const text = await res.text();
-    const rows = text.trim().split("\n").map(r =>
-      r.split(",").map(c => c.trim().replace(/^"|"$/g, ""))
-    );
-    const headers = rows[0].map(h => h.toLowerCase().replace(/\s/g,""));
-    const idCol   = headers.findIndex(h => h.includes("discord") || h.includes("id"));
-    return rows.slice(1).map(r => (r[idCol]||"").trim()).filter(Boolean);
-  } catch(e) {
-    console.error("Sheet error:", e.message);
-    return [];
-  }
-}
-
-/* ════════════════════════════════════════════════════════════
    تسجيل دخول الأدمن عبر Discord OAuth2
    ════════════════════════════════════════════════════════════ */
 app.get("/auth/login", (req, res) => {
@@ -158,7 +172,7 @@ app.get("/auth/callback", async (req, res) => {
     });
     const user = await userRes.json();
 
-    const adminIds = await fetchAdminIds();
+    const adminIds = ADMIN_IDS;
     if (!adminIds.includes(user.id)) {
       return res.redirect("/?error=not_admin");
     }
@@ -187,7 +201,6 @@ app.get("/auth/logout", (req, res) => {
    تسجيل دخول عادي لأي زائر بالموقع (مو أدمن) — يعرض اسمه وصورته بس
    ════════════════════════════════════════════════════════════ */
 const SITE_REDIRECT_URI = process.env.SITE_REDIRECT_URI; // مثال: https://xxx.railway.app/auth/site-callback
-const SITE_URL           = process.env.SITE_URL || "";    // رابط موقع Netlify الرئيسي
 
 app.get("/auth/site-login", (req, res) => {
   const params = new URLSearchParams({
@@ -270,7 +283,7 @@ app.get("/api/requests", requireAuth, (req, res) => {
 });
 
 // ── استقبال طلب جديد من موقع CFW ──
-app.post("/api/submit", async (req, res) => {
+app.post("/api/submit", submitLimiter, async (req, res) => {
   const entry = {
     id:          Date.now().toString(36) + Math.random().toString(36).slice(2,6),
     submittedAt: new Date().toISOString(),
