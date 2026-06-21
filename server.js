@@ -183,6 +183,63 @@ app.get("/auth/logout", (req, res) => {
   res.redirect("/");
 });
 
+/* ════════════════════════════════════════════════════════════
+   تسجيل دخول عادي لأي زائر بالموقع (مو أدمن) — يعرض اسمه وصورته بس
+   ════════════════════════════════════════════════════════════ */
+const SITE_REDIRECT_URI = process.env.SITE_REDIRECT_URI; // مثال: https://xxx.railway.app/auth/site-callback
+const SITE_URL           = process.env.SITE_URL || "";    // رابط موقع Netlify الرئيسي
+
+app.get("/auth/site-login", (req, res) => {
+  const params = new URLSearchParams({
+    client_id:     CLIENT_ID,
+    redirect_uri:  SITE_REDIRECT_URI,
+    response_type: "code",
+    scope:         "identify",
+  });
+  res.redirect(`https://discord.com/oauth2/authorize?${params}`);
+});
+
+app.get("/auth/site-callback", async (req, res) => {
+  const { code } = req.query;
+  if (!code || !SITE_URL) return res.redirect(SITE_URL || "/");
+
+  try {
+    const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id:     CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        grant_type:    "authorization_code",
+        code,
+        redirect_uri:  SITE_REDIRECT_URI,
+      }),
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenData.access_token) return res.redirect(SITE_URL + "?login_error=1");
+
+    const userRes = await fetch("https://discord.com/api/users/@me", {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    const user = await userRes.json();
+
+    const avatar = user.avatar
+      ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+      : `https://cdn.discordapp.com/embed/avatars/0.png`;
+
+    const params = new URLSearchParams({
+      login: "1",
+      id:       user.id,
+      username: user.username,
+      avatar,
+    });
+    res.redirect(`${SITE_URL}?${params}`);
+  } catch(e) {
+    console.error("Site auth error:", e.message);
+    res.redirect(SITE_URL + "?login_error=1");
+  }
+});
+
 function requireAuth(req, res, next) {
   if (req.session?.user) return next();
   res.status(401).json({ error: "غير مصرح" });
