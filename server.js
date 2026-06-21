@@ -100,10 +100,11 @@ function createRateLimiter({ windowMs, max }) {
 // تنظيف دوري للذاكرة عشان ما تكبر بلا حدود مع مرور الوقت
 const submitLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 5 }); // 5 طلبات كل 10 دقايق لكل IP
 
-// ── CORS: يسمح بس لموقعك (Netlify) يتواصل مع هذا السيرفر ──
+// ── CORS: يسمح بس لموقعك (Netlify) يتواصل مع هذا السيرفر، ويسمح بإرسال الكوكي (الجلسة) ──
 app.use((req, res, next) => {
   if (SITE_URL) {
     res.header("Access-Control-Allow-Origin", SITE_URL);
+    res.header("Access-Control-Allow-Credentials", "true");
   }
   res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type");
@@ -113,11 +114,17 @@ app.use((req, res, next) => {
 });
 
 app.use(express.static(path.join(__dirname, "public")));
+app.set("trust proxy", 1); // لازم لـ Railway عشان الكوكي secure يشتغل صحيح خلف الـproxy
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false, maxAge: 1000 * 60 * 60 * 8 }
+  cookie: {
+    secure: true,      // الكوكي يُرسل فقط عبر HTTPS
+    httpOnly: true,     // يمنع الجافاسكربت بالمتصفح من قراءة الكوكي (حماية من XSS)
+    sameSite: "none",   // لازم "none" (مع secure:true) عشان الكوكي يرسل من موقعك (Netlify) لسيرفر مختلف (Railway)
+    maxAge: 1000 * 60 * 60 * 8
+  }
 }));
 
 /* ════════════════════════════════════════════════════════════
@@ -284,22 +291,36 @@ app.get("/auth/site-callback", async (req, res) => {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const user = await userRes.json();
+    if (!user?.id) return res.redirect(SITE_URL + "?login_error=1");
 
     const avatar = user.avatar
       ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
       : `https://cdn.discordapp.com/embed/avatars/0.png`;
 
-    const params = new URLSearchParams({
-      login: "1",
+    // التحقق من صلاحية الأدمن يصير هنا، بالسيرفر، لحظة تسجيل الدخول — وليس بالمتصفح أبدًا
+    const sheetAdminIds = await fetchAdminIdsFromSheet();
+    const adminIds = [...new Set([...ADMIN_IDS, ...sheetAdminIds])];
+    const isAdmin = adminIds.includes(user.id);
+
+    // كل بيانات المستخدم تُخزن بالـsession (بالسيرفر) — لا تُمرر أبدًا عبر رابط أو localStorage
+    req.session.siteUser = {
       id:       user.id,
       username: user.username,
       avatar,
-    });
-    res.redirect(`${SITE_URL}?${params}`);
+      isAdmin,
+    };
+
+    // الرابط النهائي لا يحمل أي بيانات شخصية، فقط علم بسيط للواجهة
+    res.redirect(`${SITE_URL}?login=1`);
   } catch(e) {
     console.error("Site auth error:", e.message);
     res.redirect(SITE_URL + "?login_error=1");
   }
+});
+
+app.get("/auth/site-logout", (req, res) => {
+  if (req.session) delete req.session.siteUser;
+  res.redirect(SITE_URL || "/");
 });
 
 function requireAuth(req, res, next) {
@@ -309,6 +330,14 @@ function requireAuth(req, res, next) {
 
 app.get("/api/me", requireAuth, (req, res) => {
   res.json(req.session.user);
+});
+
+// نقطة جديدة: يستخدمها index.html لمعرفة بيانات الزائر المسجل دخوله بالموقع العادي (بما فيها isAdmin)
+app.get("/api/site-me", (req, res) => {
+  if (!req.session?.siteUser) {
+    return res.json({ loggedIn: false });
+  }
+  res.json({ loggedIn: true, ...req.session.siteUser });
 });
 
 /* ════════════════════════════════════════════════════════════
