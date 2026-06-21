@@ -4,6 +4,8 @@ const fetch   = require("node-fetch");
 const path    = require("path");
 const fs      = require("fs");
 const { Client, GatewayIntentBits } = require("discord.js");
+const { GoogleSpreadsheet } = require("google-spreadsheet");
+const { JWT } = require("google-auth-library");
 
 const app = express();
 
@@ -27,7 +29,53 @@ const ADMIN_IDS = String(process.env.ADMIN_IDS || "")
   .filter(Boolean);
 
 if (!ADMIN_IDS.length) {
-  console.warn("⚠️ ADMIN_IDS غير موجود — ما حد يقدر يسجل دخول كأدمن. حِط المتغير بإعدادات Railway.");
+  console.warn("⚠️ ADMIN_IDS غير موجود — هذا عادي لو معتمد على Google Sheets فقط.");
+}
+
+// ── إعدادات Google Service Account (قراءة فقط من شيت الأدمنز) ──
+const GOOGLE_SERVICE_EMAIL = process.env.GOOGLE_SERVICE_EMAIL || "";
+const GOOGLE_PRIVATE_KEY   = (process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+const ADMIN_SHEET_ID       = process.env.ADMIN_SHEET_ID || ""; // معرف الشيت (من رابط الشيت، الجزء بين /d/ و /edit)
+
+/**
+ * يجلب قائمة الـ Discord IDs من شيت جوجل عبر Service Account (Viewer فقط).
+ * يبحث عن أي عمود اسمه يحتوي كلمة "discord" أو "id" (بأي صيغة: مسافات، شرطات سفلية، حروف كبيرة/صغيرة).
+ * عند أي خطأ (اتصال، صلاحيات، إلخ) يرجّع قائمة فاضية بدل ما يكسر السيرفر.
+ */
+async function fetchAdminIdsFromSheet() {
+  if (!GOOGLE_SERVICE_EMAIL || !GOOGLE_PRIVATE_KEY || !ADMIN_SHEET_ID) {
+    return []; // إعدادات الشيت غير مكتملة — يعتمد فقط على ADMIN_IDS الثابتة
+  }
+  try {
+    const auth = new JWT({
+      email: GOOGLE_SERVICE_EMAIL,
+      key: GOOGLE_PRIVATE_KEY,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    });
+    const doc = new GoogleSpreadsheet(ADMIN_SHEET_ID, auth);
+    await doc.loadInfo();
+    const sheet = doc.sheetsByIndex[0]; // أول ورقة بالملف
+    const rows = await sheet.getRows();
+
+    // تطبيع اسم العمود: نشيل المسافات والشرطات السفلية ونحول لحروف صغيرة
+    // عشان "id discord" و "Discord_ID" و "ID Discord" كلها تتطابق
+    const normalize = (s) => s.toLowerCase().replace(/[\s_]+/g, "");
+    const idHeader = sheet.headerValues.find((h) => {
+      const n = normalize(h);
+      return n.includes("discord") || n.includes("id");
+    });
+    if (!idHeader) {
+      console.warn("⚠️ ما لقيت عمود يحتوي 'discord' أو 'id' بصف العناوين بالشيت.");
+      return [];
+    }
+
+    return rows
+      .map(row => String(row.get(idHeader) || "").trim())
+      .filter(Boolean);
+  } catch (err) {
+    console.error("❌ خطأ بقراءة شيت الأدمنز:", err.message);
+    return [];
+  }
 }
 
 app.use(express.json());
@@ -172,7 +220,8 @@ app.get("/auth/callback", async (req, res) => {
     });
     const user = await userRes.json();
 
-    const adminIds = ADMIN_IDS;
+    const sheetAdminIds = await fetchAdminIdsFromSheet();
+    const adminIds = [...new Set([...ADMIN_IDS, ...sheetAdminIds])];
     if (!adminIds.includes(user.id)) {
       return res.redirect("/?error=not_admin");
     }
