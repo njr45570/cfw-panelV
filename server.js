@@ -311,7 +311,7 @@ app.get("/auth/site-callback", async (req, res) => {
     };
 
     // الرابط النهائي لا يحمل أي بيانات شخصية، فقط علم بسيط للواجهة
-    res.redirect(`${SITE_URL}?login=1`);
+    res.redirect(`${SITE_URL}?login=1&t=${Date.now()}`);
   } catch(e) {
     console.error("Site auth error:", e.message);
     res.redirect(SITE_URL + "?login_error=1");
