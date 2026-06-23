@@ -1349,10 +1349,11 @@ const CFW_CONFIG = {
     },
     {
       id: "discord_tag",
-      label: "ما هو اسم المستخدم بالديسكورد؟",
+      label: "اسم المستخدم بالديسكورد",
       type: "text",
       placeholder: "username",
-      required: true
+      required: true,
+      autoFillFromSession: true
     },
     {
       id: "experience",
@@ -1926,7 +1927,7 @@ function renderStep(wrapper){
     }
     return `<div class="wiz-field">
       <label>${escapeHTML(q.label)}</label>
-      <input type="text" id="${q.id}" placeholder="${escapeAttr(q.placeholder||'')}" value="${escapeAttr(wizardData[q.id]||'')}" />
+      <input type="text" id="${q.id}" placeholder="${escapeAttr(q.placeholder||'')}" value="${escapeAttr(q.autoFillFromSession && window.__siteSession?.username ? window.__siteSession.username : wizardData[q.id]||'')}" ${q.autoFillFromSession && window.__siteSession?.username ? 'readonly style="opacity:0.7;cursor:not-allowed"' : ''} />
     </div>`;
   }).join("");
 
