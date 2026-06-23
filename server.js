@@ -69,11 +69,9 @@ async function fetchAdminIdsFromSheet() {
       return [];
     }
 
-    const ids = rows
+    return rows
       .map(row => String(row.get(idHeader) || "").trim())
       .filter(Boolean);
-    console.log("✅ Admin IDs from sheet:", ids);
-    return ids;
   } catch (err) {
     console.error("❌ خطأ بقراءة شيت الأدمنز:", err.message);
     return [];
@@ -115,14 +113,16 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(express.static(path.join(__dirname, "public")));
+app.set("trust proxy", 1); // لازم لـ Railway عشان الكوكي secure يشتغل صحيح خلف الـproxy
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: true,
-    httpOnly: true,
-    sameSite: "lax",
+    secure: true,      // الكوكي يُرسل فقط عبر HTTPS
+    httpOnly: true,     // يمنع الجافاسكربت بالمتصفح من قراءة الكوكي (حماية من XSS)
+    sameSite: "none",   // لازم "none" (مع secure:true) عشان الكوكي يرسل من موقعك (Netlify) لسيرفر مختلف (Railway)
     maxAge: 1000 * 60 * 60 * 8
   }
 }));
@@ -301,7 +301,6 @@ app.get("/auth/site-callback", async (req, res) => {
     const sheetAdminIds = await fetchAdminIdsFromSheet();
     const adminIds = [...new Set([...ADMIN_IDS, ...sheetAdminIds])];
     const isAdmin = adminIds.includes(user.id);
-    console.log("🔍 User ID:", user.id, "| Admin IDs:", adminIds, "| isAdmin:", isAdmin);
 
     // كل بيانات المستخدم تُخزن بالـsession (بالسيرفر) — لا تُمرر أبدًا عبر رابط أو localStorage
     req.session.siteUser = {
@@ -319,26 +318,9 @@ app.get("/auth/site-callback", async (req, res) => {
   }
 });
 
-app.post("/api/site-logout", (req, res) => {
-  if (req.session) {
-    req.session.destroy(() => {
-      res.clearCookie("connect.sid");
-      res.json({ ok: true });
-    });
-  } else {
-    res.json({ ok: true });
-  }
-});
-
 app.get("/auth/site-logout", (req, res) => {
-  if (req.session) {
-    req.session.destroy(() => {
-      res.clearCookie("connect.sid");
-      res.redirect(SITE_URL || "/");
-    });
-  } else {
-    res.redirect(SITE_URL || "/");
-  }
+  if (req.session) delete req.session.siteUser;
+  res.redirect(SITE_URL || "/");
 });
 
 function requireAuth(req, res, next) {
