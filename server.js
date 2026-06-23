@@ -69,9 +69,11 @@ async function fetchAdminIdsFromSheet() {
       return [];
     }
 
-    return rows
+    const ids = rows
       .map(row => String(row.get(idHeader) || "").trim())
       .filter(Boolean);
+    console.log("✅ Admin IDs from sheet:", ids);
+    return ids;
   } catch (err) {
     console.error("❌ خطأ بقراءة شيت الأدمنز:", err.message);
     return [];
@@ -301,6 +303,7 @@ app.get("/auth/site-callback", async (req, res) => {
     const sheetAdminIds = await fetchAdminIdsFromSheet();
     const adminIds = [...new Set([...ADMIN_IDS, ...sheetAdminIds])];
     const isAdmin = adminIds.includes(user.id);
+    console.log("🔍 User ID:", user.id, "| Admin IDs:", adminIds, "| isAdmin:", isAdmin);
 
     // كل بيانات المستخدم تُخزن بالـsession (بالسيرفر) — لا تُمرر أبدًا عبر رابط أو localStorage
     req.session.siteUser = {
