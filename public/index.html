@@ -882,7 +882,7 @@ p{ margin:0; }
           <div class="member-chip" id="member-chip">
             <img id="member-chip-avatar" src="" alt="" />
             <span id="member-chip-name"></span>
-            <a href="#profile" data-view-link="profile" style="color:var(--gold-light);font-size:13px;text-decoration:none;margin-left:8px;">ملفي</a>
+            <button type="button" onclick="showView('profile')" style="background:none;border:none;color:var(--gold-light,#e2c06e);font-size:13px;cursor:pointer;padding:0 8px;">ملفي</button>
             <button type="button" class="member-chip-logout" id="member-chip-logout">خروج</button>
           </div>
           <a href="PUT_YOUR_STORE_URL_HERE" target="_blank" rel="noopener" class="nav-pill-login">المتجر</a>
@@ -986,8 +986,13 @@ p{ margin:0; }
               <div style="background:var(--card-bg,#1a1a1a);border:1px solid var(--gold-deep,#7a5c1e);border-radius:16px;padding:32px;text-align:center;">
                 <img src="${data.avatar || ''}" alt="" style="width:90px;height:90px;border-radius:50%;border:3px solid var(--gold,#c9a14a);margin-bottom:16px;" />
                 <h2 style="margin:0 0 8px;color:var(--gold-light,#e2c06e);">${data.username || 'العضو'}</h2>
-                <p style="color:var(--ink-dim,#aaa);font-size:13px;margin:0;">Discord ID: ${data.id || ''}</p>
-                ${data.isAdmin ? '<span style="display:inline-block;margin-top:12px;background:var(--gold,#c9a14a);color:#000;padding:4px 14px;border-radius:20px;font-size:12px;font-weight:700;">أدمن</span>' : ''}
+                <p style="color:var(--ink-dim,#aaa);font-size:13px;margin:0 0 20px;">Discord ID: ${data.id || ''}</p>
+                ${data.isAdmin ? `
+                  <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--gold-deep,#7a5c1e);">
+                    <p style="color:var(--gold,#c9a14a);font-weight:700;margin:0 0 12px;">🛡️ لديك صلاحية الأدمن</p>
+                    <a href="/panel" style="display:inline-block;background:var(--gold,#c9a14a);color:#000;padding:10px 28px;border-radius:8px;font-weight:700;text-decoration:none;font-size:14px;">دخول لوحة الإدارة</a>
+                  </div>
+                ` : ''}
               </div>
             `;
           }
