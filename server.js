@@ -69,9 +69,11 @@ async function fetchAdminIdsFromSheet() {
       return [];
     }
 
-    return rows
+    const ids = rows
       .map(row => String(row.get(idHeader) || "").trim())
       .filter(Boolean);
+    console.log("✅ Admin IDs from sheet:", ids);
+    return ids;
   } catch (err) {
     console.error("❌ خطأ بقراءة شيت الأدمنز:", err.message);
     return [];
@@ -301,6 +303,7 @@ app.get("/auth/site-callback", async (req, res) => {
     const sheetAdminIds = await fetchAdminIdsFromSheet();
     const adminIds = [...new Set([...ADMIN_IDS, ...sheetAdminIds])];
     const isAdmin = adminIds.includes(user.id);
+    console.log("🔍 User ID:", user.id, "| Admin IDs:", adminIds, "| isAdmin:", isAdmin);
 
     // كل بيانات المستخدم تُخزن بالـsession (بالسيرفر) — لا تُمرر أبدًا عبر رابط أو localStorage
     req.session.siteUser = {
@@ -318,9 +321,26 @@ app.get("/auth/site-callback", async (req, res) => {
   }
 });
 
+app.post("/api/site-logout", (req, res) => {
+  if (req.session) {
+    req.session.destroy(() => {
+      res.clearCookie("connect.sid");
+      res.json({ ok: true });
+    });
+  } else {
+    res.json({ ok: true });
+  }
+});
+
 app.get("/auth/site-logout", (req, res) => {
-  if (req.session) delete req.session.siteUser;
-  res.redirect(SITE_URL || "/");
+  if (req.session) {
+    req.session.destroy(() => {
+      res.clearCookie("connect.sid");
+      res.redirect(SITE_URL || "/");
+    });
+  } else {
+    res.redirect(SITE_URL || "/");
+  }
 });
 
 function requireAuth(req, res, next) {
@@ -501,10 +521,14 @@ app.get("/api/member-info", async (req, res) => {
       : [];
 
     // جلب طلبات العضو من الملف المحلي
+    const userId = req.session.siteUser.id;
+    const username = req.session.siteUser.username?.toLowerCase();
+
     const memberRequests = requests
-      .filter(r => r.data?.discord_tag && member?.user &&
-        (r.data.discord_tag.toLowerCase() === member.user.username.toLowerCase() ||
-         r.data.discord_tag.toLowerCase() === member.user.tag?.toLowerCase()))
+      .filter(r => {
+        const tag = (r.data?.discord_tag || "").toLowerCase().replace(/^@/, "");
+        return tag === username || tag === member?.user?.tag?.toLowerCase();
+      })
       .map(r => ({
         id: r.id,
         status: r.status,
