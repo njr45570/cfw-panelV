@@ -505,9 +505,28 @@ app.get("/api/member-info", async (req, res) => {
   if (!req.session?.siteUser) return res.json({ loggedIn: false });
 
   const userId = req.session.siteUser.id;
+  const username = (req.session.siteUser.username || "").toLowerCase();
 
+  // جلب طلبات العضو بناءً على اليوزر نيم
+  const memberRequests = requests
+    .filter(r => {
+      const tag = (r.data?.discord_tag || "").toLowerCase().replace(/^@/, "");
+      return tag === username;
+    })
+    .map(r => ({
+      id: r.id,
+      status: r.status,
+      submittedAt: r.submittedAt,
+    }));
+
+  const hasPending = memberRequests.some(r => r.status === "pending");
+  const hasAccepted = memberRequests.some(r => r.status === "accepted");
+  const hasRejected = memberRequests.some(r => r.status === "rejected");
+
+  // لو ما في بوت نرجع البيانات من الطلبات فقط
   if (!bot || !botReady || !GUILD_ID) {
-    return res.json({ loggedIn: true, roles: [], whitelistStatus: "unknown", requests: [] });
+    const whitelistStatus = hasAccepted ? "accepted" : hasRejected ? "rejected" : hasPending ? "pending" : "none";
+    return res.json({ loggedIn: true, roles: [], whitelistStatus, requests: memberRequests });
   }
 
   try {
@@ -520,35 +539,19 @@ app.get("/api/member-info", async (req, res) => {
           .map(r => r.name)
       : [];
 
-    // جلب طلبات العضو من الملف المحلي
-    const userId = req.session.siteUser.id;
-    const username = req.session.siteUser.username?.toLowerCase();
+    // حالة الوايت لست — الأولوية للرول الفعلي في السيرفر
+    const hasWhitelistRole = roles.some(r => r.toLowerCase() === ACCEPT_ROLE_NAME.toLowerCase());
+    const whitelistStatus = hasWhitelistRole ? "accepted"
+      : hasAccepted ? "accepted"
+      : hasRejected ? "rejected"
+      : hasPending ? "pending"
+      : "none";
 
-    const memberRequests = requests
-      .filter(r => {
-        const tag = (r.data?.discord_tag || "").toLowerCase().replace(/^@/, "");
-        return tag === username || tag === member?.user?.tag?.toLowerCase();
-      })
-      .map(r => ({
-        id: r.id,
-        status: r.status,
-        submittedAt: r.submittedAt,
-      }));
-
-    // حالة الوايت لست
-    const hasWhitelist = roles.some(r => r.toLowerCase() === ACCEPT_ROLE_NAME.toLowerCase());
-    const hasPending = memberRequests.some(r => r.status === "pending");
-    const whitelistStatus = hasWhitelist ? "accepted" : hasPending ? "pending" : "none";
-
-    res.json({
-      loggedIn: true,
-      roles,
-      whitelistStatus,
-      requests: memberRequests,
-    });
+    res.json({ loggedIn: true, roles, whitelistStatus, requests: memberRequests });
   } catch (e) {
     console.error("member-info error:", e.message);
-    res.json({ loggedIn: true, roles: [], whitelistStatus: "unknown", requests: [] });
+    const whitelistStatus = hasAccepted ? "accepted" : hasRejected ? "rejected" : hasPending ? "pending" : "none";
+    res.json({ loggedIn: true, roles: [], whitelistStatus, requests: memberRequests });
   }
 });
 
