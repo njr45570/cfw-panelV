@@ -905,22 +905,11 @@ p{ margin:0; }
     (function(){
       const PANEL_BASE = "https://cfw-panelv-production.up.railway.app";
 
-      // الرمز البديل (يشتغل حتى لو المتصفح حجب كوكي الجلسة بين الدومينين، مثل Brave/Safari)
-      function getSiteToken(){
-        return localStorage.getItem("cfw_site_token") || "";
-      }
-      function siteFetch(url, opts={}){
-        const token = getSiteToken();
-        const headers = Object.assign({}, opts.headers || {});
-        if(token) headers["x-site-token"] = token;
-        return fetch(url, Object.assign({ credentials: "include" }, opts, { headers }));
-      }
-
       // نسأل السيرفر مباشرة عن حالة تسجيل الدخول الحقيقية (موثوقة، غير قابلة للتلاعب من المتصفح)
       // نحتفظ بالنتيجة بـ window.__siteSession فقط — لا نلمس النفبار أبدًا
       async function loadSiteSession(){
         try {
-          const res = await siteFetch(`${PANEL_BASE}/api/site-me`);
+          const res = await fetch(`${PANEL_BASE}/api/site-me`, { credentials: "include" });
           const data = await res.json();
           window.__siteSession = data;
         } catch(e) {
@@ -928,18 +917,11 @@ p{ margin:0; }
         }
       }
 
-      // لو رجعنا من ديسكورد وبالرابط رمز جديد، نحفظه بالمتصفح (localStorage) فورًا
-      const initParams = new URLSearchParams(window.location.search);
-      if(initParams.get("token")){
-        localStorage.setItem("cfw_site_token", initParams.get("token"));
-      }
-
-      // ننظف الرابط من علم login=1 وt= ورمز tokens لو رجعنا من ديسكورد (الرابط ما يحمل بيانات شخصية بعد الآن)
+      // ننظف الرابط من علم login=1 وt= لو رجعنا من ديسكورد (الرابط ما يحمل بيانات شخصية بعد الآن)
       const params = new URLSearchParams(window.location.search);
       if(params.get("login") === "1"){
         params.delete("login");
         params.delete("t");
-        params.delete("token");
         const cleanUrl = window.location.pathname + (params.toString() ? "?" + params.toString() : "") + window.location.hash;
         window.history.replaceState({}, "", cleanUrl);
       }
@@ -1008,7 +990,7 @@ p{ margin:0; }
                 ${data.isAdmin ? `
                   <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--gold-deep,#7a5c1e);">
                     <p style="color:var(--gold,#c9a14a);font-weight:700;margin:0 0 12px;">🛡️ لديك صلاحية الأدمن</p>
-                    <a href="https://cfw-panelv-production.up.railway.app/auth/login" target="_blank" style="display:inline-block;background:var(--gold,#c9a14a);color:#000;padding:10px 28px;border-radius:8px;font-weight:700;text-decoration:none;font-size:14px;">دخول لوحة الإدارة</a>
+                    <a href="/auth/login" target="_blank" style="display:inline-block;background:var(--gold,#c9a14a);color:#000;padding:10px 28px;border-radius:8px;font-weight:700;text-decoration:none;font-size:14px;">دخول لوحة الإدارة</a>
                   </div>
                 ` : ''}
                 <div id="member-info-section" style="margin-top:20px;text-align:right;">
@@ -1037,13 +1019,7 @@ p{ margin:0; }
       });
 
       async function logoutSite(){
-        try {
-          await siteFetch(`${PANEL_BASE}/api/site-logout`, { method: "POST" });
-        } catch(e){ /* تجاهل أي خطأ بالشبكة، سننتقل لإعادة التحميل بكل الحالات */ }
-        localStorage.removeItem("cfw_site_token");
-        window.__siteSession = { loggedIn: false };
-        applySessionToNav(window.__siteSession);
-        window.location.reload();
+        window.location.href = `${PANEL_BASE}/auth/site-logout`;
       }
 
       document.addEventListener("click", (e) => {
@@ -1057,7 +1033,7 @@ p{ margin:0; }
         const section = document.getElementById("member-info-section");
         if (!section) return;
         try {
-          const res = await siteFetch(`${PANEL_BASE}/api/member-info`);
+          const res = await fetch(`${PANEL_BASE}/api/member-info`, { credentials: "include" });
           const data = await res.json();
 
           const statusMap = {
