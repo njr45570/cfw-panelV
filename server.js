@@ -124,7 +124,7 @@ app.use(session({
   cookie: {
     secure: true,      // الكوكي يُرسل فقط عبر HTTPS
     httpOnly: true,     // يمنع الجافاسكربت بالمتصفح من قراءة الكوكي (حماية من XSS)
-    sameSite: "none",   // لازم "none" (مع secure:true) عشان الكوكي يرسل من موقعك (Netlify) لسيرفر مختلف (Railway)
+    sameSite: "lax",  // لازم "none" (مع secure:true) عشان الكوكي يرسل من موقعك (Netlify) لسيرفر مختلف (Railway)
     maxAge: 1000 * 60 * 60 * 8
   }
 }));
