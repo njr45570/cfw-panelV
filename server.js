@@ -480,6 +480,54 @@ app.post("/api/decide", requireAuth, async (req, res) => {
   res.json({ ok: true, roleResult });
 });
 
+// ── جلب بيانات العضو من البوت (للملف الشخصي) ──
+app.get("/api/member-info", async (req, res) => {
+  if (!req.session?.siteUser) return res.json({ loggedIn: false });
+
+  const userId = req.session.siteUser.id;
+
+  if (!bot || !botReady || !GUILD_ID) {
+    return res.json({ loggedIn: true, roles: [], whitelistStatus: "unknown", requests: [] });
+  }
+
+  try {
+    const guild = await bot.guilds.fetch(GUILD_ID);
+    const member = await guild.members.fetch(userId).catch(() => null);
+
+    const roles = member
+      ? member.roles.cache
+          .filter(r => r.name !== "@everyone")
+          .map(r => r.name)
+      : [];
+
+    // جلب طلبات العضو من الملف المحلي
+    const memberRequests = requests
+      .filter(r => r.data?.discord_tag && member?.user &&
+        (r.data.discord_tag.toLowerCase() === member.user.username.toLowerCase() ||
+         r.data.discord_tag.toLowerCase() === member.user.tag?.toLowerCase()))
+      .map(r => ({
+        id: r.id,
+        status: r.status,
+        submittedAt: r.submittedAt,
+      }));
+
+    // حالة الوايت لست
+    const hasWhitelist = roles.some(r => r.toLowerCase() === ACCEPT_ROLE_NAME.toLowerCase());
+    const hasPending = memberRequests.some(r => r.status === "pending");
+    const whitelistStatus = hasWhitelist ? "accepted" : hasPending ? "pending" : "none";
+
+    res.json({
+      loggedIn: true,
+      roles,
+      whitelistStatus,
+      requests: memberRequests,
+    });
+  } catch (e) {
+    console.error("member-info error:", e.message);
+    res.json({ loggedIn: true, roles: [], whitelistStatus: "unknown", requests: [] });
+  }
+});
+
 app.get("/panel", (req, res) => {
   if (!req.session?.user) return res.redirect("/");
   res.sendFile(path.join(__dirname, "public", "panel.html"));
