@@ -115,16 +115,14 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static(path.join(__dirname, "public")));
-app.set("trust proxy", 1); // لازم لـ Railway عشان الكوكي secure يشتغل صحيح خلف الـproxy
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: true,      // الكوكي يُرسل فقط عبر HTTPS
-    httpOnly: true,     // يمنع الجافاسكربت بالمتصفح من قراءة الكوكي (حماية من XSS)
-    sameSite: "lax",  // لازم "none" (مع secure:true) عشان الكوكي يرسل من موقعك (Netlify) لسيرفر مختلف (Railway)
+    secure: true,
+    httpOnly: true,
+    sameSite: "lax",
     maxAge: 1000 * 60 * 60 * 8
   }
 }));
