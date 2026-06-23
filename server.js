@@ -318,9 +318,26 @@ app.get("/auth/site-callback", async (req, res) => {
   }
 });
 
+app.post("/api/site-logout", (req, res) => {
+  if (req.session) {
+    req.session.destroy(() => {
+      res.clearCookie("connect.sid");
+      res.json({ ok: true });
+    });
+  } else {
+    res.json({ ok: true });
+  }
+});
+
 app.get("/auth/site-logout", (req, res) => {
-  if (req.session) delete req.session.siteUser;
-  res.redirect(SITE_URL || "/");
+  if (req.session) {
+    req.session.destroy(() => {
+      res.clearCookie("connect.sid");
+      res.redirect(SITE_URL || "/");
+    });
+  } else {
+    res.redirect(SITE_URL || "/");
+  }
 });
 
 function requireAuth(req, res, next) {
