@@ -882,6 +882,7 @@ p{ margin:0; }
           <div class="member-chip" id="member-chip">
             <img id="member-chip-avatar" src="" alt="" />
             <span id="member-chip-name"></span>
+            <a href="#profile" data-view-link="profile" style="color:var(--gold-light);font-size:13px;text-decoration:none;margin-left:8px;">ملفي</a>
             <button type="button" class="member-chip-logout" id="member-chip-logout">خروج</button>
           </div>
           <a href="PUT_YOUR_STORE_URL_HERE" target="_blank" rel="noopener" class="nav-pill-login">المتجر</a>
@@ -977,9 +978,27 @@ p{ margin:0; }
 
           loginBtn.style.display = "none";
           chip.classList.add("show");
+
+          // ملء صفحة الملف الشخصي
+          const profileContent = document.getElementById("profile-content");
+          if(profileContent){
+            profileContent.innerHTML = `
+              <div style="background:var(--card-bg,#1a1a1a);border:1px solid var(--gold-deep,#7a5c1e);border-radius:16px;padding:32px;text-align:center;">
+                <img src="${data.avatar || ''}" alt="" style="width:90px;height:90px;border-radius:50%;border:3px solid var(--gold,#c9a14a);margin-bottom:16px;" />
+                <h2 style="margin:0 0 8px;color:var(--gold-light,#e2c06e);">${data.username || 'العضو'}</h2>
+                <p style="color:var(--ink-dim,#aaa);font-size:13px;margin:0;">Discord ID: ${data.id || ''}</p>
+                ${data.isAdmin ? '<span style="display:inline-block;margin-top:12px;background:var(--gold,#c9a14a);color:#000;padding:4px 14px;border-radius:20px;font-size:12px;font-weight:700;">أدمن</span>' : ''}
+              </div>
+            `;
+          }
         } else {
           loginBtn.style.display = "";
           chip.classList.remove("show");
+
+          const profileContent = document.getElementById("profile-content");
+          if(profileContent){
+            profileContent.innerHTML = '<p style="text-align:center;color:var(--ink-dim,#aaa);">يرجى تسجيل الدخول لعرض ملفك الشخصي.</p>';
+          }
         }
       }
 
@@ -1108,6 +1127,23 @@ p{ margin:0; }
       <div class="section" style="padding-top:24px;">
         <div class="container">
           <div class="links-grid" data-links-grid></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== ملفي الشخصي ===================== -->
+    <section id="view-profile" class="view">
+      <div class="page-head">
+        <div class="container">
+          <span class="eyebrow">حسابي</span>
+          <h1>ملفي الشخصي</h1>
+        </div>
+      </div>
+      <div class="section" style="padding-top:24px;">
+        <div class="container">
+          <div id="profile-content" style="max-width:600px;margin:0 auto;">
+            <!-- يظهر هنا بعد تسجيل الدخول -->
+          </div>
         </div>
       </div>
     </section>
